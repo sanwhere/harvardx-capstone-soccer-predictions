@@ -1,0 +1,1057 @@
+---
+title: "HarvardX: PH125.9x  \n   Data Science: Capstone - Soccer Predictions"
+author: "Sanver Gozen"
+date: "May 21, 2021"
+output:
+  pdf_document: 
+    toc: yes
+    number_sections: yes
+  html_document:
+    toc: yes
+    toc_depth: '3'
+    number_sections: yes
+---
+
+# Introduction
+
+![Turkish League Soccer Prediction Project](image/besiktas.jpg)
+
+This paper is the second part of the "**HarvardX: Data Science" Professional Course’s Capstone Project**"; Soccer Prediction.
+
+Soccer is one of the most popular sports on the planet. In many countries, soccer games are large and well organized sports events with significant economic implications. In this study, I predict the full-time results (**FTR**) of soccer matches in the "**Turkish Super Lig**", using data science and machine learning based on results and scores collected over 10 years.
+
+Soccer clubs and organizations have taken the form of a profitable business. including sports bets. Here, predictions of game outcomes are of considerable interest.
+
+Although the result of a football match depends on various variables, it is mainly determined over the offensive and defensive strengths of the teams. The outcomes of sports matches can be difficult to predict, with surprises often popping up. Despite these uncertainties, I will train the algorithm and generate predicted results or scores using by Poisson distribution and other models. Poisson distribution is a discrete probability distribution in the probability theory and statistics science branches. It aims to express the probability of occurrence of certain events in a fixed time unit interval.
+
+$$ P(x,\mu) = 	\frac{(e^{-\mu}) (\mu^x)} {x!} $$
+
+* $e$, the base of the natural logarithm.
+* $x$, The number of occurrences of an event whose probability is given with function.
+* $x!$, Factorial for x.
+* $\mu$, The expected value of occurrence of an event in a given fixed interval, a positive real number.
+
+Also, I will compare the following models with each other in order to determine which is the best model for the data: 
+
+* Conditional Inference Trees
+* Naive Bayes","Support Vector
+* Quadratic Discriminant Analysis
+* Generalized Linear Model
+* Neural Networks
+
+## Libraries
+
+The following libraries are utilized:
+
+```{r, echo =FALSE,message = FALSE, warning = FALSE, eval = TRUE}
+# Note: This process could take a couple of minutes
+# Install libraries if it not in the system 
+if(!require(dplyr)) install.packages("dplyr",repos = "http://cran.us.r-project.org")
+if(!require(tidyverse)) install.packages("tidyverse",repos = "http://cran.us.r-project.org")
+if(!require(Metrics)) install.packages("Metrics",repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret",repos = "http://cran.us.r-project.org")
+if(!require(kableExtra)) install.packages("kableExtra", repos = "http://cran.us.r-project.org")
+if(!require(nnet)) install.packages("nnet",repos = "http://cran.us.r-project.org")
+if(!require(MASS)) install.packages("MASS",repos = "http://cran.us.r-project.org")
+if(!require(clusterSim)) install.packages("clusterSim",repos = "http://cran.us.r-project.org")
+if(!require(party)) install.packages("party",repos = "http://cran.us.r-project.org")
+if(!require(e1071)) install.packages("e1071",repos = "http://cran.us.r-project.org")
+if(!require(neuralnet)) install.packages("neuralnet",repos = "http://cran.us.r-project.org")
+if(!require(GGally)) install.packages("GGally",repos = "http://cran.us.r-project.org")
+if(!require(skellam)) install.packages("skellam",repos = "http://cran.us.r-project.org")
+if(!require(scales)) install.packages("scales",repos = "http://cran.us.r-project.org")
+```
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Load Libraries
+library(dplyr) # Provides a set of tools for efficiently manipulating datasets.
+library(tidyverse) # An opinionated collection of R packages.
+library(Metrics) # For Machine Learning, and predictions.
+library(caret) # Classification And REgression Training.
+library(kableExtra) # For better visualization of the tables.
+library(nnet) # For compute Neural Networks model
+library(MASS) # Support Functions and datasets
+library(clusterSim) # Searching for Optimal Clustering Procedure for a Data Set
+library(party) # A Laboratory for Recursive Partytioning
+library(e1071) # Misc Functions of the Department of Statistics
+library(neuralnet) # Training of Neural Networks
+library(GGally) # Allows to build a great scatterplot matrix.
+library(skellam) # Densities and Sampling for the Skellam Distribution
+library(scales) # Scale Functions for Visualization
+```
+
+## Dataset
+
+I use the following code to generate the datasets. It will download the dataset according to a given time frame,  which spans the years between 2010-2020:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Download the data
+# Set the time frame
+x <- c(2019:2010)
+alldata <- data.frame()
+# Download each season by the time frame
+for (val in x) {
+  url1 = "https://sports-statistics.com/database/soccer-data/turkey-futbol-ligi-1-"
+  url2 = val 
+  url3 = "-to-" 
+  url4 = val + 1 
+  url5 = ".csv"
+  url6 = "turkey-futbol-ligi-"
+  href <- paste0(url1,url2,url3,url4,url5)
+  href2 <- paste0(url6,url2,url5)
+  download.file(href,href2)
+  data <- read.csv(href2)
+  data$HTHG <- as.integer(data$HTHG)
+  # Remove empty rows from each file and clean the data
+  final_data <- na.omit(data)
+  if("PSCH" %in% names(data)) {final_data <- final_data %>% mutate(PSCH = as.character(PSCH))}
+  # Merge the new data to the old one
+  alldata <- bind_rows(alldata,final_data)
+}
+```
+
+Let's clean the NA values from the dataset if it is exists, and remove unnecessary parts of the data.
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Clean the data
+alldata <- alldata %>% select_if(~ !any(is.na(.))) 
+# Remove unnecessary variables from environment
+rm(data,final_data,href,href2,url1,url2,url3,url4,url5,url6,val,x)
+```
+
+Now, we have downloaded our data set. Next, we need to check the data.
+
+# Analysis 
+## Data Summary
+### First Look
+
+I now analyze the  dataset, and visualize the data for better understanding:
+
+Check the data info:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Check the data
+dim(alldata)
+```
+
+There are 2184 match results (rows) and 25 different type of variables for each match (columns). 
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Let's see what is inside
+head(alldata)%>%  
+  kable() %>% kable_styling(font_size = 10, position = "center", 
+                            latex_options = c("scale_down","HOLD_position"))
+```
+
+Summary of the first 10 headers of the data:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Summarize the data
+summary(alldata[1:10])%>%  
+  kable() %>% kable_styling(font_size = 10, position = "center", 
+                            latex_options = c("scale_down","HOLD_position"))
+```
+
+The meaning of the headers is stated below:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+## Explain the Heads
+# Div = League Division
+# Date = Match Date (dd/mm/yy)
+# HomeTeam = Home Team
+# AwayTeam = Away Team
+# FTHG and HG = Full Time Home Team Goals
+# FTAG and AG = Full Time Away Team Goals
+# FTR and Res = Full Time Result (H=Home Win, D=Draw, A=Away Win)
+# HTHG = Half Time Home Team Goals
+# HTAG = Half Time Away Team Goals
+# HTR = Half Time Result (H=Home Win, D=Draw, A=Away Win)
+# B365H = Bet365 home win odds
+# B365D = Bet365 draw odds
+# B365A = Bet365 away win odds
+# BWH = Bet&Win home win odds
+# BWD = Bet&Win draw odds
+# BWA = Bet&Win away win odds
+# IWH = Interwetten home win odds
+# IWD = Interwetten draw odds
+# IWA = Interwetten away win odds
+# WHH = William Hill home win odds
+# WHD = William Hill draw odds
+# WHA = William Hill away win odds
+# VCH = VC Bet home win odds
+# VCD = VC Bet draw odds
+# VCA = VC Bet away win odds
+```
+
+I check if there are any NA values in our dataset:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Check NA values
+anyNA(alldata)
+```
+
+The dataset does not contain any **NA** values, which is of advantage.
+
+## Data Analysis
+
+First the teams are selected and specified:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# See and set the Unique Home-Away Teams
+alldata %>% summarise(Teams = n_distinct(HomeTeam))
+alldata %>% summarise(Teams = n_distinct(AwayTeam))
+```
+
+The dataset distinguished between home and away teams. I unify the teams by removing the distinction:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Find out which team is the different one
+first <- c(alldata$HomeTeam )
+second <- c(alldata$AwayTeam)
+setdiff(second,first)
+# Remove the different team
+alldata <- alldata %>% filter(!str_detect(AwayTeam, 'Balikesirspor'))
+```
+
+Which leads to an array of unique team names:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Set the Unique Team
+unique_teams <- alldata %>% group_by(HomeTeam) %>% head(20)
+unique_teams
+```
+
+The following section identifies duplicates and combines them:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# String replace to avoid duplicate teams
+alldata$HomeTeam <- lapply(alldata$HomeTeam, gsub, pattern = "Gaziantepspor", 
+                           replacement = "Gaziantep", fixed = TRUE)
+alldata$HomeTeam <- unlist(alldata$HomeTeam)
+alldata$AwayTeam <- lapply(alldata$AwayTeam, gsub, pattern = "Gaziantepspor", 
+                           replacement = "Gaziantep", fixed = TRUE)
+alldata$AwayTeam <- unlist(alldata$AwayTeam)
+```
+
+This leads to unique team identifiers:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Now we have exact unique teams
+unique_teams <- alldata %>% group_by(HomeTeam) %>% summarise()
+alldata %>% summarise(Teams = n_distinct(HomeTeam))
+```
+
+Now, we have our real unique teams as we can see from above.
+
+### Home Team Effect
+
+The data analysis continues with a count of Full Time Result's(**FTR**):
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Home, Away and Draw count
+table(alldata$FTR)
+```
+
+It becomes apparent that the "**Home**" team winning count exceeds the "**Draw**" or "**Away**" counts. As expected, the home team has an advantage over the away team.
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Summarize results
+summary(alldata$FTR)
+```
+
+The FTR data appears as type "character". In the following, the match data is analyzed by season. Thus, the time/date data are cleared or modified.
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Check the date's class
+class(alldata$Date)
+```
+
+Date data is of type "**character**" and needs conversion to the date. But, first, I create a "**somedata**" variable to assign **alldata**, such that I can modify it without losing any data from **alldata**.
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Create "somedata" to not lose or mess any data from "alldata" data set.
+somedata <- alldata
+```
+
+Now, I create **newdate** column in **somedata** for clear or modify date data:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Change Date format
+somedata$newdate <- strptime(as.character(alldata$Date), "%d/%m/%Y")
+```
+
+I then clean and replace bad data with valid characters or dates:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Replace bad data with the valid ones
+somedata$newdate <- lapply(somedata$newdate, gsub, pattern = "/00", replacement = "20", fixed = TRUE)
+somedata$newdate <- lapply(somedata$newdate, gsub, pattern = "/2019", replacement = "19", fixed = TRUE)
+# Create a for loop for fix the dates
+url1 = "00"
+url2 <- c(19:10)
+url3 = "20"
+for (val1 in url2) {
+  d <- paste0(url1,val1)
+  f <- paste0(url3,val1)
+    somedata$newdate <- lapply(somedata$newdate, gsub, pattern = d, replacement = f, fixed = TRUE)
+  }
+# Unlist the dates column 
+somedata$newdate <- unlist(somedata$newdate)
+```
+
+I check the date class:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Check the class
+class(somedata$newdate)
+
+# Change the class of the date data
+somedata$newdate <- as.Date(somedata$newdate)
+```
+
+I am now proceeding to analyzing the seasonal data:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Plot Full Time Result by Season
+season_graph <- somedata %>%
+  mutate(month = format(newdate, "%m"), year = format(newdate, "%Y")) %>%
+  group_by(month, year) %>% group_by(newdate) %>% ggplot(aes(x = year, fill = FTR)) +
+  geom_bar(position = position_dodge()) +
+  ylab("Count") + 
+  xlab("Season")+ scale_fill_discrete(name = "Reults", labels = c("Away", "Draw", "Home"),guide = guide_legend(reverse=TRUE))
+# Plot the data
+season_graph
+```
+
+The chart reveals that, each season, the home team's are winning more frequently than the away teams, and there are some seasons that have matches more than others. I look into the data in more detail in order to compare them. 
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# See detailed data
+glimpse(alldata)
+```
+
+To compare different data sets, the data from one betting company's data is sufficient to see if there is a correlation or not. I include home goals (**FTHG**), away goals (**FTAG**), home win odds (**B265H**) and away win odds (**B365A**):
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Plot Matrix for understand and observe data
+ggpairs(data=alldata, columns=c(5,6,11,13), title="Score Data",cardinality_threshold=NULL)
+```
+
+As expected, there is only a negative correlation with **B365H** and **B365A**, which are opposite odds for away and home teams.
+
+Now, I take a look at the Full Time Result (**FTR**) in order to understand the score distribution:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Away, Draw, Home Means
+FTR_means <- alldata %>%
+  group_by(FTR) %>%
+  summarise(mean_scored = mean(FTHG)) %>%
+  print()
+```
+
+From the above analysis it can be seen that the home teams score average is **2.43**, while the away teams score average is **0.626**. The "home team effect" is apparent. Next, the scoring distribution per team is evaluated:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Average Goal Score per Team
+alldata %>%
+  group_by(FTHG) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count)) %>%
+  ggplot(aes(x = FTHG, y = count)) + 
+  geom_point() +
+  xlab("Home Team Avarage Score") +
+  ylab("Played Matches") +
+  scale_y_continuous(labels = scales::label_number_si())+
+  labs(title = "Average Score Distribution Per Teams")+
+  theme()
+```
+
+The average number of goals conceded per team is obtained from:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Average Goal Conceded per Team
+alldata %>%
+  group_by(FTAG) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count)) %>%
+  ggplot(aes(x = FTAG, y = count)) + 
+  geom_point() +
+  xlab("Home Team Avarage Conced") +
+  ylab("Played Matches") +
+  scale_y_continuous(labels = scales::label_number_si())+
+  labs(title = "Average Conced Distribution Per Teams")+
+  theme()
+```
+
+From the above results, it became apparent that in almost **700** matches the home team scored by **1** goal, and in almost **800** matches, the home team conceded by **1** goal. So, we understood that soccer is a low scoring game and the probability for having more than seven goals is very low for "**Turkish Super Lig**".
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# All teams number of played games
+alldata %>%
+  group_by(HomeTeam) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count)) %>%
+  ggplot(aes(x = HomeTeam, y = count)) + 
+  geom_point() +
+  xlab("Teams") +
+  ylab("Played Matches") +
+  labs(title = "Number of Matches for Each Team")+
+  theme(axis.text.x  = element_text(angle= 90))
+```
+
+The "**Turkish Super Lig**" has **18** teams on each season. New additions are coming from the champions of the second division, and the teams of lower performance are descending to the second division for the next season. For this reason, some teams participate for a limited time, e.g. 2-3 seasons, and there are teams that have played more matches than others. I will consider this later.
+
+I identify the best teams in the league according to the difference of scored mean and conceded mean:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# See the Best Teams
+best_teams <- alldata %>% group_by(HomeTeam) %>%
+  summarise(Scored_Mean = mean(FTHG),
+            Conceeded_Mean = mean(FTAG)) %>% 
+  arrange(desc(Scored_Mean-Conceeded_Mean)) %>% head(20)
+best_teams
+```
+
+The data is filtered for the teams who participated in more than 100 matches:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Filtered-Teams, Scored-Conceded Average per team
+filtered_teams <- alldata %>% group_by(HomeTeam) %>%
+  summarise(Scored_Mean = mean(FTHG),
+            Conceeded_Mean = mean(FTAG),
+            count=n()) %>% filter(count > 100)%>% 
+  arrange(desc(Scored_Mean-Conceeded_Mean)) %>% head(20)
+filtered_teams
+```
+
+Note that some teams, such as "**Yeni Malatya**", were removed from the first list due to filtering the data. The number of played matches will affect the average.
+
+Now time to see, average of game results:
+
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Average of Game Results
+H <- alldata %>% group_by(HomeTeam) %>% filter(FTR=="H") %>%  
+  summarise(count = n())
+
+A <- alldata %>% group_by(HomeTeam) %>% filter(FTR== "A") %>%  
+  summarise(count = n())
+
+D <- alldata %>% group_by(HomeTeam) %>% filter(FTR=="D") %>%  
+  summarise(count = n())
+
+# See the result
+mean(D$count)
+mean(A$count)
+mean(H$count)
+```
+
+As expected, the home teams' winning average is higher than the draw teams’ and away teams’ averages. 
+
+Below is the matrix of home-away scoring data:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Plot Home Away Matrix
+HomeAwayMatrix <- alldata %>%
+  # Remove not played games
+  filter(!is.na(FTHG) & !(FTHG-FTAG==0)) %>%
+  ggplot(., aes(x = HomeTeam, y = AwayTeam, fill = FTHG-FTAG)) +
+  geom_tile() +
+  # Add the scorelines
+  geom_label(aes(label = paste(FTHG-FTAG)), size = 2) +
+  # Coloring - Where green shows home wins and red an away wins
+  scale_fill_gradient2(low = "red", high = "green", midpoint = 0) +
+  scale_x_discrete(limits = levels(alldata$HomeTeam)) +
+  scale_y_discrete(limits = levels(alldata$AwayTeam)) + 
+  theme(axis.text.x = element_text(angle = 90))  
+# Plot the Matrix
+HomeAwayMatrix
+```
+
+Each teams’ net scores can be identified and characterized in the matrix. "**Red**" means that a team conceded more than scored, "**Green**" denotes the opposite.
+
+I now evaluate the **Attack** and **Defense** Ratings of each team. While the attack rating of a team suggests how many goals a team has scored per game with respect to the total average of the league in which they are competing, the defense rating indicates how many goals a team has conceded per game with respect to the average.
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Best Teams by attack and defense rating
+rating <- alldata %>% group_by(HomeTeam) %>%
+  summarise(Attack = mean(FTHG) / mean(alldata$FTHG),
+            Defense = mean(FTAG)/ mean(alldata$FTAG)) %>% 
+  arrange(desc(Attack-Defense)) %>% head(20)
+rating
+```
+
+To make the predictions simpler and more accurate, I change the probability of the final result to two different results instead of three. The data is displayed as Home Win (**H**), and Not Home Win (**NH**):
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Change the data to Home and NotHome.
+somedata <- alldata
+# Replace "Away" with "Not Home"
+somedata$FTR <- lapply(somedata$FTR, gsub, pattern = "A", replacement = "NH", fixed = TRUE)
+# Replace "Draw" with "Not Home"
+somedata$FTR <- lapply(somedata$FTR, gsub, pattern = "D", replacement = "NH", fixed = TRUE)
+somedata$FTR <- unlist(somedata$FTR)
+```
+
+In the following the **Home** and **Not Home** goal density is evaluated:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# plot Home Goals scored Home - Not Home
+HomeGoalsSocred <- somedata %>%
+  ggplot(., aes(x = (FTHG-FTAG), fill = FTR)) +
+  # smooth densities
+  geom_density(adjust = 8, alpha = 0.5) +
+  scale_fill_manual(values = c("red", "blue")) +
+  labs(title = "Goals scored at Home and Away Teams",
+       x = "Goals Scored",
+       y = "Density") +
+  theme_minimal()
+# plot
+HomeGoalsSocred
+```
+
+# Modeling
+
+## Train and Test Data
+
+Any training-test split which has more data in the training set will most likely lead to better accuracy as calculated on that test set. However, the accuracy of the test set is not of interest. I am interested in the "**real**" accuracy, which gets estimated by the test set. With data from ten seasons of the "**Turkish Super Lig.**", a  **90%-10%** set for at least 1 season can be obtained to predict results. Let's start with split our data into 2 parts; as test and training:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+## Train and Test data
+# Create "somedata" to not lose any info from "alldata" data set.
+somedata = alldata
+set.seed(2105, sample.kind="Rounding") # if using R 3.5 or earlier, use `set.seed(1)`
+# Split data to train and test data by portion of %10-%90
+test_index <- createDataPartition(y = somedata$HomeTeam, times = 1, 
+                                  p = 0.1, list = FALSE)
+train <- somedata[-test_index,]
+test <- somedata[test_index,]
+rm(test_index)
+```
+
+Now, a **90%** portion of all data is used to train the models, and **10%** is used for testing the models and for determining  the accuracy of the models.
+
+## Score Prediction and Winning Match Percentage
+
+As mentioned in the introduction, the **Poisson** model will be used in the project to predict the results and the scores football matches.
+
+$$ P(x,\mu) = 	\frac{(e^{-\mu}) (\mu^x)} {x!},x=0,1,2,..., \mu >0 $$
+
+The general focus of the Poisson distribution is a variable event; this event occurs at a certain time interval, and the number of events observed in this range is considered to be a random variable for the Poisson distribution. The expected value of the number of events occurring in this fixed range (the mean number of occurrences) is fixed as $\mu$, and this mean value is proportional to the range length.
+
+The function of $x$ is the probability mass function for the **Poisson** distribution.
+
+**Poisson Distribution** is a simple predictive model that does not allow for numerous factors. **Situational factors – such as club circumstances, game status, player performances etc. – and subjective evaluation of the change of each team during the transfer window are completely ignored**. Thus we will just calculating the scores without considering any other effects.
+
+The constant $e$ is the unique real number such that the value of the derivative (slope of the tangent line) of the function $f(x) = 	e^{x}$ at the point of $x = 0$ is equal to 1.
+
+The exponential dispersion form can be retrieved as follows:
+
+$$ P(x,\mu) = 	\frac{(e^{-\mu}) (\mu^x)} {x!} = exp [log(e^{-\mu }) + log(\mu^{x})-log(x!)]$$
+$$ = exp (x.log(\mu)-\mu-log(x!))$$
+
+A Poisson Regression model is a **Generalized Linear Model** (GLM) that is used to model count data and contingency tables. The output **Y** (count) is a value that follows the Poisson distribution. It assumes the logarithm of the expected values (mean) that can be modeled into a linear form by some unknown parameters:
+
+$$ Y_{u,i} = a + \beta_{1} x_{1}i + \beta_{2} x_{2}i + ... +\beta_{p} x_{p}i + e_i$$
+
+The response variable $y_i$ is modeled by a linear function of predictor variables and some error term. To transform the non-linear relationship to linear form, a link function is used which is the log for Poisson Regression. For that reason, a Poisson Regression model is also called log-linear model. The general mathematical form of Poisson Regression model is:
+
+
+$$ log(y)=a+\beta_1x_1+\beta_2x_2+...+\beta_px_p$$
+$y$: is the response variable
+$a$ and $\beta$: are numeric coefficients, a being the intercept, sometimes a also is represented by $\beta_0$
+$x$: is the predictor/explanatory variable
+
+Consider an equation with one predictor variables and one response variable:
+
+$$log(y)=a+\beta(x)$$
+
+This is equivalent to:
+
+$$y=e^{(a+\beta(x))}=e^a+e^{\beta*x}$$
+
+One of the most important characteristics for Poisson distribution and Poisson Regression is equidispersion, which means that the mean and variance of the distribution are equal. Variance measures the spread of the data. It is the "average of the squared differences from the mean". Variance (VAR) is equal to 0 if all values are identical. The greater the difference between the values, the greater the variance. Mean is the average of values of a dataset. Average is the sum of the values divided by the number of values.
+
+Let us say that the mean $\mu$ is denoted by $E(X)$:
+
+$$E(X)=\mu$$
+
+For Poisson Regression, mean and variance are related as:
+
+$$var(X)=\sigma^2E(X)$$
+Where $\sigma^2$ is the dispersion parameter. Since var(X)=E(X)(variance=mean) must hold for the Poisson model to be completely fit, $\sigma^2$ must be equal to 1.
+
+Therefore, the expectation is equal to the variance as expected in the Poisson case.
+
+For predicting football results, models that use an attack and a defense coefficient to estimate the expected number of goals for both the home team and the away team can be found in popular science. Since the two random variables are assumed to be independent, the bi-variate Poisson density will simply be the product of the two marginal Poisson densities. Mathematically, it can be expressed as follows:
+
+X = "Number of home goals" ~ Poisson($\mu$x) and 
+Y = "Number of away goals" ~ Poisson($\mu$y) 
+
+The expectations for each of the two random variables (i.e. $\mu$x and $\mu$y) are then calculated by assigning an attack and a defense coefficient for both the home and away team. The attack coefficient for the home team is estimated by taking the ratio of the average number of home goals scored by the home team this season, and the total average of all home goals scored this season. The attack coefficient for the away team is then estimated in an analogous manner, but by using the ratio of the average number of away goals scored by the away team and the total average of all away goals scored this season.
+
+The defense coefficient for the home team is then calculated by taking the ratio of the average number of goals conceded by the home team at home and the total average of goals conceded at home this season. The defense coefficient for the away team is calculated by taking the ratio of the average number of goals conceded away for the away team and the total average of goals conceded away this season.
+
+So, in order to predict how many goals the team can score, I use:
+
+$$log(\mu.home) = a + \beta.attack.home + \beta.defense.away$$
+
+I create the model as follows:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Poisson Distribution - Predict Games by Home and Away Team
+# Create a Model
+poisson_model <- 
+  rbind(
+    # Calculate Home Attack Rating,
+    data.frame(goals = train$FTHG,
+               team = train$HomeTeam,
+               opponent = train$AwayTeam,
+               home = 1
+               ),
+    # Calculate Away Attack rating as Defense,
+    data.frame(goals = train$FTAG,
+               team = train$AwayTeam,
+               opponent = train$HomeTeam,
+               home=0)) %>%
+  glm(goals ~ team + home + opponent, family=poisson(link=log),data=.)
+summary(poisson_model)
+```
+
+The above code shows that there is a Home "**Estimate**", which means home teams have an advantage - as mentioned in the above sections. They are more likely to score than the away team.
+
+$$e^{0.258238581} = 1.30$$
+
+It can be seen that home teams generally score **1.30** times more likely goals than the away teams.
+
+I demonstrate this model with 2 different teams: **Goztep** and **Besiktas**:
+
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Set Home and Away Team from the Data set
+phome = "Goztep"
+paway = "Besiktas"
+```
+
+The above charts and data show that soccer has a low probability of very high scores. In the "Turkish Super Lig", the maximum goals scored in the league was seven. A heat map chart will reveal all goal probabilities with the goal limit of seven:
+
+The next step is to get the Poisson probabilities for the possible "goals scored" values, using the mean as the rate parameter, since we know that the mean of a Poisson distribution is also the event rate $\mu$ . R’s **dpois** which takes as input the values for the number of successes and expected number of events, and returns the probability, is used to accomplished this.
+
+Also, **dpois** is called density, distribution function, quantile function and random generation for the Poisson distribution with parameter lambda.
+
+I start with predicting the home goal and away goals. "**Home**" has a value of 1 and "**Away**" has 0, taking into consideration the home advantage. Also, away and home goals are represented by $\mu$ in the Poisson model formula:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Predict Home Goal
+homeXg <- predict(poisson_model, 
+              data.frame(home=1, team= phome, 
+                         opponent=paway)
+              , type="response")
+# Predict Away Goal
+awayXg <- predict(poisson_model, 
+              data.frame(home=0, team=paway, 
+                         opponent=phome)
+              , type="response")
+```
+
+For visualization I create a "**Expected Scores Heat Map**":
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Create a function to see the probability of the score distribution.
+ScoreGrid <- function(homeXg,awayXg){
+  # Get the score data
+  A <- as.numeric()
+  B <- as.numeric()
+  # Limit the score with 7 goals
+  for(i in 0:6) {
+    A[(i+1)] <- dpois(i,homeXg)
+    B[(i+1)] <- dpois(i,awayXg)
+  }
+  # Built the grid for 7 goals
+  A[8] <- 1 - sum(A[1:7])
+  B[8] <- 1 - sum(B[1:7])
+  name <- c("0","1","2","3","4","5","6","7+")
+  zero <- mat.or.vec(8,1)
+  C <- data.frame(row.names=name, "0"=zero, "1"=zero, "2"=zero, "3"=zero, "4"=zero,
+                  "5"=zero, "6"=zero, "7+"=zero)
+  for(j in 1:8) {
+    for(k in 1:8) {
+      C[j,k] <- A[k]*B[j]
+    }
+  }
+  colnames(C) <- name
+  return(round(C*100,4))
+}
+
+# Create a Score Heat Map to see the probability of the full time scores
+ScoreHeatMap <- function(home,away,homeXg,awayXg){
+  adjustedHome<-as.character(sub("_", " ", home))
+  adjustedAway<-as.character(sub("_"," ",away))
+  df <- ScoreGrid(homeXg,awayXg)
+  # Use ScoreGrid function to create a heat map
+  df %>% 
+    as_tibble(rownames = all_of(away)) %>%
+    pivot_longer(cols = -all_of(away), 
+                 names_to = home, 
+                 values_to = "Probability") %>%
+    mutate_at(vars(all_of(away), home), 
+              ~forcats::fct_relevel(.x, "7+", after = 7)) %>% 
+    # Use black and white colors to see the strong and weak probability
+    ggplot() + 
+    geom_tile(aes_string(x=all_of(away), y=all_of(home), fill = "Probability")) +   
+    scale_fill_gradient2(mid="white", high = "black")+
+    theme(plot.margin = unit(c(0.5,0.5,0.5,0.5),"cm"),
+          plot.title = element_text(size=20,hjust = 0.5,face="bold",vjust =4),
+          plot.subtitle = element_text(size=12,hjust = 0.5,vjust=4),
+          axis.title.x=element_text(size=14,vjust=-0.5,face="bold"),
+          axis.title.y=element_text(size=14, vjust =0.5,face="bold")
+    )+
+    labs(x=adjustedAway,y=adjustedHome,fill='Probability (%)')+ 
+    ggtitle(label = "Expected Scores", subtitle = paste("Home:",round(homeXg,2),"-",round(awayXg,2),": Away"))
+  
+}
+# Show the Heat Map
+ScoreHeatMap(phome, paway, homeXg,awayXg)
+```
+
+As predicted above, and confirmed by the chart, with 12.5% probability the "**Goztep**" team has **1.13** score probability, while "**Besiktas**" team has **1.44**. So We might say that this match will end with a score of 1-1. Also, with **10%** probability, **Besiktas** will win the game with a score of 0-1. The chart also shows the other probabilities for a lower ratio than the score of 1-1.
+
+I now calculate the predictions of the result of the games (**FTR**), using the **Poisson** model.
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+# Predict Match Function - Set max goal 7
+predict_match <- function(foot_model, HomeTeam, AwayTeam, max_goals=7){
+  # Set Mu For Poisson Distribution 
+  home_goals_avg <- predict(foot_model,
+                            data.frame(home=1, team=HomeTeam, 
+                                       opponent=AwayTeam), type="response")
+  away_goals_avg <- predict(foot_model, 
+                            data.frame(home=0, team=AwayTeam, 
+                                       opponent=HomeTeam), type="response")
+  # dpois(x, mu) is the probability of x successes in a period when the expected number of events is mu
+  dpois(0:max_goals, home_goals_avg) %o% dpois(0:max_goals, away_goals_avg) 
+}
+# Store the data generated by function
+teams <- predict_match(poisson_model, phome, paway, max_goals=7)
+
+# Store the results
+H <- sum(teams[lower.tri(teams)])
+D <- sum(diag(teams))
+A <- sum(teams[upper.tri(teams)])
+
+# Print the winning chance results by percentage
+print (c(paste0("Home: %",round(H,digits=4)*100),
+         paste0("Draw: %",round(D,digits=4)*100),
+         paste0("Away: %",round(A,digits=4)*100)))
+```
+
+The home team has a lower chance to win the match, and away team has a higher chance to win.
+
+The actual final result of the above match was 1-2. Besiktas won the match, and with it the cup of the "**Turkish Super Lig**". In that match, Besiktas won by penalty, which was not taken into account in the expected score, because scores that comes from penalties are random scores - unrelated to the used data set. Thus, the above model's prediction can be considered successful.
+
+I calculate the model's actual accuracy for the entire data set in the next section[3.6].
+
+## Data Manipulation
+
+I manipulate the data set in order to achieve predictions with based on two probabilities, which are Home Wins **(H)** and Not Home Wins **(NH)**. I  change the Full Time Result column from  **A** and **D** to **NH**.
+
+I also need to factorize the data for working on with **Binomial Models**.
+
+```{r, echo =FALSE,message = FALSE, warning = FALSE, eval = TRUE}
+# Data changing
+# Create "somedata" to not lose any info from "alldata".
+somedata <- subset(alldata, select=-c(Div,Date))
+# Change Home-Away-Draw to Home-NotHome for Binomial Models
+somedata$FTR <- lapply(somedata$FTR, gsub, pattern = "A", replacement = "NH", fixed = TRUE)
+somedata$FTR <- lapply(somedata$FTR, gsub, pattern = "D", replacement = "NH", fixed = TRUE)
+somedata$FTR <- unlist(somedata$FTR)
+somedata$HTR <- lapply(somedata$HTR, gsub, pattern = "A", replacement = "NH", fixed = TRUE)
+somedata$HTR <- lapply(somedata$HTR, gsub, pattern = "D", replacement = "NH", fixed = TRUE)
+somedata$HTR <- unlist(somedata$HTR)
+# Factorization of the data for Binomial Models
+somedata$FTR <- factor(somedata$FTR)
+somedata$HTR <- factor(somedata$HTR)
+somedata$FTHG <- factor(somedata$FTHG)
+somedata$FTAG <- factor(somedata$FTAG)
+somedata$HTHG <- factor(somedata$HTHG)
+somedata$HTAG <- factor(somedata$HTAG)
+somedata$HomeTeam <- factor(somedata$HomeTeam)
+somedata$AwayTeam <- factor(somedata$AwayTeam)
+# Summarize data
+summary(somedata)
+```
+
+```{r, echo =FALSE,message = FALSE, warning = FALSE, eval = TRUE}
+# create train and test data
+set.seed(2105, sample.kind="Rounding") # if using R 3.5 or earlier, use `set.seed(1)`
+test_index <- createDataPartition(y = somedata$HomeTeam, times = 1, 
+                                  p = 0.1, list = FALSE)
+train <- somedata[-test_index,]
+test <- somedata[test_index,]
+rm(test_index)
+```
+
+## Naive Bayes
+
+Naive Bayes Classifier is based on the Bayes Theorem. The Bayes Theorem says the conditional probability of an outcome x can be computed using the conditional probability of the cause of the outcome C. 
+
+Using the prior probability, the posterior probability can be computed, which is the probability that event C will occur given that x has occurred. The Naive Bayes classifier uses the input variable to choose the class with the highest posterior probability. The algorithm is called naive because it makes an assumption about the distribution of the data. The distribution can be Gaussian, Bernoulli or Multinomial.
+
+I create a model for comparing the results with the main model:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+naive_bayes_model<-naiveBayes(FTR ~ ., data = train)
+naive_bayes_predictions<-predict(naive_bayes_model, newdata=test)
+naive_bayes_accuracy=round(mean(naive_bayes_predictions==test$FTR),2)*100
+table(naive_bayes_predictions,test[,5])
+# Accuracy of our model
+result <- mean(naive_bayes_predictions==test[,5])
+# Add to the Table
+all_rmse <- data.frame()
+all_rmse <- bind_rows(all_rmse, 
+                      data.frame(Linear_Model = "Naive Bayes Model", 
+                                 Model_Accuracy = round(result*100,2)))
+all_rmse %>%  
+  kable() %>% kable_styling(font_size = 12, position = "center",
+                            latex_options = c("HOLD_position"))
+```
+
+
+## Support Vector
+
+A support vector machine (SVM) is a classification and regression algorithm. It operates by identifying a hyper plane which separates the classes in the data. A hyper plane is a geometric entity which has a dimension of 1 less than its surrounding (ambient) space. If an SVM is utilized to classify a two-dimensional dataset, it will perform it with a one-dimensional hyper place (a line), classes in 3D data will be separated by a 2D plane and Nth dimensional data will be separated by a N-1 dimension line. A SVM is also called a margin classifier because it draws a margin between classes.
+
+Sometime classes cannot be separated by a straight line in the present dimension. An SVM is capable of mapping the data in higher dimension such that it becomes separable by a margin. SVMs are powerful in situations where the number of features (columns) is more than the number of samples (rows). It is also effective in high dimensions.
+
+I try this model to compare with the main model. A SVM has several methods to compute the probability, which I all explore.
+
+### Radial Kernel SVM Model
+
+The Radial kernel support vector machine is a good approach when the data is not linearly separable. The idea behind generating non-linear decision boundaries is that I need to perform some nonlinear transformations on the features $X_i$ which transforms them into a higher dimensional space.
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+## SVM Radial Model
+svm_model_radial <- svm(FTR ~ ., kernel = "radial", data=train)
+summary(svm_model_radial)
+prediction_radial <- predict(svm_model_radial, newdata = test)
+# Create confusion Matrix
+cm <- confusionMatrix(prediction_radial, test$FTR )
+# Accuracy of our model
+result <- cm$overall[[1]]
+# Add to the Table
+all_rmse <- bind_rows(all_rmse, 
+                      data.frame(Linear_Model = "SVM_Model_Radial", 
+                                 Model_Accuracy = round(result*100,2)))
+# Write the result on the table
+all_rmse %>%  
+  kable() %>% kable_styling(font_size = 12, position = "center",
+                            latex_options = c("HOLD_position"))
+```
+
+### Linear Kernel SVM Model
+
+The Linear Kernel is used when the data is Linearly separable, that is, it can be separated using a single Line. It is one of the most commonly used kernels. It is mostly used when there are a Large number of Features in a particular Data Set.
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+## SVM Linear Model
+svm_model_Linear <- svm(FTR ~ .,kernel = "linear", data=train)
+summary(svm_model_Linear)
+prediction_linear <- predict(svm_model_Linear, newdata = test)
+# Create confusion Matrix
+cm <- confusionMatrix(prediction_linear, test$FTR )
+# Accuracy of our model
+result <- cm$overall[[1]]
+# Add to the Table
+all_rmse <- bind_rows(all_rmse, 
+                      data.frame(Linear_Model = "SVM_Model_Linear", 
+                                 Model_Accuracy = round(result*100,2)))
+# Write the result on the table
+all_rmse %>%  
+  kable() %>% kable_styling(font_size = 12, position = "center",
+                            latex_options = c("HOLD_position"))
+```
+
+### Polynomial 3th Degree Kernel SVM Model
+
+In machine learning, the polynomial kernel is a kernel function commonly used with support vector machines (SVMs) and other kernelized models, that represents the similarity of vectors (training samples) in a feature space over polynomials of the original variables, allowing learning of non-linear models. Intuitively, the polynomial kernel looks not only at given features of input samples in order to determine their similarity, but also at combinations of these. In the context of regression analysis, such combinations are known as interaction features. The (implicit) feature space of a polynomial kernel is equivalent to that of polynomial regression, but without the combinatorial blow-up in the number of parameters to be learned. When the input features are binary-valued, then the features correspond to logical conjunctions of input features. For degree-d polynomials, the polynomial kernel is defined as:
+
+$$ K(x,y) = (x^Ty+c)^d$$
+
+where $x$ and $y$ are vectors in the input space, i.e. vectors of features computed from training or test samples and c >= 0 is a free parameter trading off the influence of higher-order versus lower-order terms in the polynomial. When $c$ = 0, the kernel is called homogeneous. Below is the result for degree ($d$) = 3;
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+## SVM Polynomial Model
+svm_model_poli <- svm(FTR ~ .,kernel = "polynomial",degree = 3, data=train)
+summary(svm_model_poli)
+prediction_poli <- predict(svm_model_poli, newdata = test)
+# Create confusion Matrix
+cm <- confusionMatrix(prediction_poli, test$FTR )
+# Accuracy of our model
+result <- cm$overall[[1]]
+# Add to the Table
+all_rmse <- bind_rows(all_rmse, 
+                      data.frame(Linear_Model = "SVM_Model_Polinominal_3th", 
+                                 Model_Accuracy = round(result*100,2)))
+# Write the result on the table
+all_rmse %>%  
+  kable() %>% kable_styling(font_size = 12, position = "center",
+                            latex_options = c("HOLD_position"))
+```
+
+### Polynomial 5th Degree Kernel SVM Model
+
+The following code used degree = 5:
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+## SVM Polynomial 5th Degree Model
+svm_model_poli_5 <- svm(FTR ~ .,kernel = "polynomial",degree = 5, data=train)
+summary(svm_model_poli_5)
+prediction_poli_5 <- predict(svm_model_poli_5, newdata = test)
+# Create confusion Matrix
+cm <- confusionMatrix(prediction_poli_5, test$FTR )
+# Accuracy of our model
+result <- cm$overall[[1]]
+# Add to the Table
+all_rmse <- bind_rows(all_rmse, 
+                      data.frame(Linear_Model = "SVM_Model_Polinominal_5th", 
+                                 Model_Accuracy = round(result*100,2)))
+# Write the result on the table
+all_rmse %>%  
+  kable() %>% kable_styling(font_size = 12, position = "center",
+                            latex_options = c("HOLD_position"))
+```
+
+### Quadratic Discriminant Analysis Model
+
+Quadratic Discrimination is the general form of Bayesian discrimination. Discriminant analysis is used to determine which variables discriminate between two or more naturally occurring groups. QDA does not assume that the covariance of each of the classes is identical. To estimate the parameters required in quadratic discrimination, more computation effort and data is required than in the case of linear discrimination. If there is not a large difference in the group covariance matrices, then the latter will perform as well as quadratic discrimination.
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+## QDA Model - Prediction Model
+test = data.frame(lapply(test, function(x) as.numeric(x)))
+train = data.frame(lapply(train, function(x) as.numeric(x)))
+qda.fit = qda(FTR ~.,data=train)
+summary(qda.fit)
+qda.class=predict(qda.fit,test)$class 
+table(qda.class,test[,5]) # 5th column FTR
+# Accuracy of our model
+result <- mean(qda.class==test[,5]) # 5th column FTR (Accuracy)
+
+all_rmse <- bind_rows(all_rmse, 
+                      data.frame(Linear_Model = "QDA_Model", 
+                                 Model_Accuracy = round(result*100,2)))
+# Write the result on the table
+all_rmse %>%  
+  kable() %>% kable_styling(font_size = 12, position = "center",
+                            latex_options = c("HOLD_position"))
+```
+
+### Linear Discriminant Analysis
+
+Linear Discriminant Analysis is a generalization of Fisher's linear discriminant, which is a technique for dimensionality reduction. It a method used in statistics and other fields for finding a linear combination of features that characterizes or separates two or more classes of objects or events. The resulting combination may be used as a linear classifier, or typically, for dimensionality reduction before later classification. LDA is closely related to analysis of variance (ANOVA) and regression analysis, which also attempt to express one dependent variable as a linear combination of other features or measurements.
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+## LDA - Prediction Model
+lda.fit = lda(FTR ~ .,data=train)
+summary(lda.fit)
+lda.pred=predict(lda.fit, test[-5,])
+names(lda.pred)
+lda.class=predict(lda.fit,test)$class
+table(lda.class,test[,5]) # 5th column FTR
+# Accuracy of our model
+result <- mean(lda.class==test[,5]) # 5th column FTR (Accuracy)
+
+all_rmse <- bind_rows(all_rmse, 
+                      data.frame(Linear_Model = "LDA_Model", 
+                                 Model_Accuracy = round(result*100,2)))
+# Write the result on the table
+all_rmse %>%  
+  kable() %>% kable_styling(font_size = 12, position = "center",
+                            latex_options = c("HOLD_position"))
+```
+
+## Generalized Linear Model with Poisson Regression
+
+A Poisson Regression model is a Generalized Linear Model (**GLM**) that is used to model count data and contingency tables. The output Y (**count**) is a value that follows the Poisson distribution. It assumes the logarithm of expected values (mean) that can be modeled into a linear form by some unknown parameters. As we predict scores above, we will predict full time result (**FTR**) with our test and train data.
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+## GLM - Probability Model with poisson Regression
+glm.fit = glm(FTR ~ .,data=train, family=poisson(link=log))
+summary(glm.fit)
+glm.prob=predict(glm.fit,test,type="response")
+glm.prob = ifelse(glm.prob>0.5,1,0)
+table(glm.prob,test[,5])
+# Accuracy of our model
+result <- mean(glm.prob==test[,5])
+
+all_rmse <- bind_rows(all_rmse, 
+                      data.frame(Linear_Model = "GLM_Poisson_Regression_Model", 
+                                 Model_Accuracy = round(result*100,2)))
+# Write the result on the table
+all_rmse %>%  
+  kable() %>% kable_styling(font_size = 12, position = "center",
+                            latex_options = c("HOLD_position"))
+```
+
+## Neural Networks
+
+A neural network is a series of algorithms that endeavors to recognize underlying relationships in a set of data through a process that mimics the way the human brain functions. In this sense, neural networks refer to systems of neurons, either organic or artificial in nature. Neural networks can adapt to changing input; so the network generates the best possible result without needing to redesign the output criteria.
+
+```{r, echo =TRUE,message = FALSE, warning = FALSE, eval = TRUE}
+## Neural Networks
+train = data.Normalization (train,type="n4",normalization="column")
+test = data.Normalization (test,type="n4",normalization="column")
+
+set.seed(2105)
+# 5 neurons hidden layer
+neural_networks_model = neuralnet(FTR ~ HomeTeam+AwayTeam+FTHG+FTAG+HTR,
+              data = train,hidden = 5,linear.output = FALSE)
+output <- compute(neural_networks_model, train[,-5])
+p1 <- output$net.result
+prediction_neural_networks_train <- ifelse(p1>0.5, 1, 0)
+table_train <- table(prediction_neural_networks_train, train$FTR)
+table_train
+# Accuracy of our model
+sum(diag(table_train))/sum(table_train)
+# Confusion Matrix - Testing data
+output <- compute(neural_networks_model, test[,-5])
+p2 <- output$net.result
+prediction_neural_networks_test <- ifelse(p2>0.5, 1, 0)
+table_test <- table(prediction_neural_networks_test, test$FTR)
+table_test
+result <- sum(diag(table_test))/sum(table_test)
+
+all_rmse <- bind_rows(all_rmse, 
+                      data.frame(Linear_Model = "Neural Networks", 
+                                 Model_Accuracy = round(result*100,2)))
+# Write the result on the table
+all_rmse %>%  
+  kable() %>% kable_styling(font_size = 12, position = "center",
+                            latex_options = c("HOLD_position"))
+
+```
+
+# Results 
+
+With the code produced I predicted soccer scores for 2 teams, visualized the results and utilized a number of models to compare our training and test data, and finally identified the best way to generate the machine learning model which is producing the best prediction result for the soccer game full time results(**FTR**).
+
+```{r, echo =FALSE,message = FALSE, warning = FALSE, eval = TRUE}
+all_rmse %>%  
+  kable() %>% kable_styling(font_size = 12, position = "center",
+                            latex_options = c("HOLD_position"))
+```
+
+All models produced reasonably good to very good predictions. The  **LDA**, and  **SVM models with linear kernel** have been able to predict 231 matches in test data by over 95%, whereas other models have their test accuracy in the range of 55- 95%.
+
+## Discussion
+
+I used the Poisson Distribution for score prediction, which I demonstrated to be quite successful, but not accurate for the full time result predictions.
+
+For an improvement I converted the full time results to a simpler representation: Home winning(H) or Not Home Winning(NH). The **Linear SVM Model**, **QDA Model**, **LDA Model** and **Neural Networks** models provided the best results for the **Full Time Result (FTR)**, able to distinguish between Home win (**H**)-Not Home win (**NH**) decision by more than **80%** accuracy.
+
+# Conclusion 
+
+The main focus of this project was to provide a work flow for predicting game outcomes, and to propose various alternative models for the task. The target of **the Data Science: Capstone - Soccer Prediction** was to find an algorithm which provides the score predictions and best model to predict Full Time Results with Linear Regression and several more advance models, which was achieved. In this exercise, I used various statistical models to predict whether a home team will win or not win.
+
+The Poisson Distribution model is able to produce very close results for the score predictions, but is not suitable to predict the full time results.
+
+Additional feature engineering and selection, and alternative fitting strategies can potentially increase performance and are worth pursuing.
